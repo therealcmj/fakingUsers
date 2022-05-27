@@ -21,7 +21,7 @@ import logging
 NUMUSERS=1000
 BATCHSIZE=100
 
-logging.basicConfig(format='%(asctime)s %(levelname)7s %(module)s:%(funcName)s -> %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s %(levelname)7s %(module)s:%(funcName)s -> %(message)s', level=logging.DEBUG)
 logging.debug("Starting up")
 
 from faker import Faker
