@@ -18,6 +18,9 @@ import string
 import random
 import logging
 
+# SEARCHSIZE is how many we should ask for in each search
+SEARCHSIZE=1000
+# BATCHSIZE is the number of deletes we should do in a SCIM BULK call
 BATCHSIZE=100
 
 # logging.basicConfig(filename='myapp.log', level=logging.INFO)
@@ -36,6 +39,10 @@ myAppID = iam.GetMyAppID()
 # see my blog post for why I do this!
 lastId = 0
 
+# start with an empty array
+reqs = []
+
+# I like while loops for some reason
 cont = True
 while cont:
         # this filter uses the app ID we looked up above
@@ -49,14 +56,12 @@ while cont:
                 "sortBy": "id",
                 "attributes": "id",
                 "filter": filter,
-                "count": BATCHSIZE
+                "count": SEARCHSIZE
                 }
 
         try:
                 users = iam.GetUsers(args)
 
-                # start with an empty array
-                reqs = []
                 for user in users:
                         logging.info("User {} -> {}".format( user["id"], user["userName"]) )
                         lastId = user["id"]
@@ -67,11 +72,16 @@ while cont:
                                         "bulkId": ''.join(random.choices(string.ascii_lowercase,k=10)),
                                 }]
 
-                logging.info("Deleting {} users".format(len(reqs)))
-                iam.bulkRequest(reqs)
-                logging.info("Done.")
+                        if BATCHSIZE == len( reqs ):
+                                logging.info("Deleting {} users".format(len(reqs)))
+                                iam.bulkRequest(reqs)
+                                logging.info("Done.")
+                                reqs = []
 
         except IAMClient.Error:
                 # when we run out of users to delete we're done
                 cont = False
-    
+
+logging.info("Deleting last {} users".format(len(reqs)))
+iam.bulkRequest(reqs)
+logging.info("Done.")
