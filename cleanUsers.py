@@ -18,6 +18,12 @@ import string
 import random
 import logging
 
+# this is for our worker thread pool
+import concurrent.futures
+futures = []
+# and this actually creates the thread pool that we will use to do the deletes asynchronously
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
 # SEARCHSIZE is how many we should ask for in each search
 SEARCHSIZE=1000
 # BATCHSIZE is the number of deletes we should do in a SCIM BULK call
@@ -49,6 +55,7 @@ while cont:
         # and the last user "id" we saw
         # we do the latter b/c of an oddity of SCIM (see my blog post and the RFC)
         # https://datatracker.ietf.org/doc/html/rfc7644#section-3.4.2.4
+        logging.debug("Constructing search filter...")
         filter = 'idcsCreatedBy.value eq "{}" and id gt "{}"'.format(myAppID,lastId)
         logging.debug( "Filter: {}".format( filter ))
         # my search options
@@ -73,15 +80,26 @@ while cont:
                                 }]
 
                         if BATCHSIZE == len( reqs ):
-                                logging.info("Deleting {} users".format(len(reqs)))
-                                iam.bulkRequest(reqs)
-                                logging.info("Done.")
+                                logging.info("Queuing {} users for deletion".format(len(reqs)))
+                                futures.append(executor.submit(iam.bulkRequest, reqs))
+                                logging.info("Queued.")
                                 reqs = []
 
         except IAMClient.Error:
                 # when we run out of users to delete we're done
                 cont = False
 
-logging.info("Deleting last {} users".format(len(reqs)))
-iam.bulkRequest(reqs)
-logging.info("Done.")
+logging.info("Queuing last {} users for deletion".format(len(reqs)))
+futures.append(executor.submit(iam.bulkRequest, reqs))
+logging.info("Queued.")
+
+logging.info("Waiting for worker pool to complete.")
+for future in concurrent.futures.as_completed(futures):
+        if future.done():
+                logging.info("Future is done")
+        elif future.cancelled():
+                logging.info("Future is cancelled")
+        # this shouldn't happen but just in case
+        else:
+                logging.error("Future did something weird")
+        # print(future.result())

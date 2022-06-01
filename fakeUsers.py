@@ -24,6 +24,12 @@ BATCHSIZE=100
 logging.basicConfig(format='%(asctime)s %(levelname)7s %(module)s:%(funcName)s -> %(message)s', level=logging.DEBUG)
 logging.debug("Starting up")
 
+# this is for our worker thread pool
+import concurrent.futures
+futures = []
+# and this actually creates the thread pool that we will use to do the deletes asynchronously
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+
 from faker import Faker
 fake = Faker()
 
@@ -63,5 +69,17 @@ for iRequests in range( int( NUMUSERS / BATCHSIZE ) ):
             }]
 
     logging.info("Generated {} users".format(iUsers+1))
-    logging.info("Sending request {}.".format(iRequests+1))
-    idcs.bulkRequest(reqs)
+    logging.info("Queuing request {}.".format(iRequests+1))
+    futures.append(executor.submit(idcs.bulkRequest, reqs))
+    logging.info("Queued.")
+
+logging.info("Waiting for worker pool to complete.")
+for future in concurrent.futures.as_completed(futures):
+        if future.done():
+                logging.info("Future is done")
+        elif future.cancelled():
+                logging.info("Future is cancelled")
+        # this shouldn't happen but just in case
+        else:
+                logging.error("Future did something weird")
+        # print(future.result())
