@@ -2,7 +2,7 @@
 
 
 ################################################################################
-# Copyright (c) 2022, Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2022-2023, Oracle and/or its affiliates.  All rights reserved.
 # This software is dual-licensed to you under the Universal Permissive License
 # (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License
 # 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose 
@@ -25,21 +25,32 @@ futures = []
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 # SEARCHSIZE is how many we should ask for in each search
-SEARCHSIZE=1000
+SEARCHSIZE=100
 # BATCHSIZE is the number of deletes we should do in a SCIM BULK call
-BATCHSIZE=100
+BATCHSIZE=20
+
+# how do you define an "idle" user
+# in this case I do it by how many days since the last time they logged in
+DAYSIDLE=90
 
 # logging.basicConfig(filename='myapp.log', level=logging.INFO)
-logging.basicConfig(format='%(asctime)s %(levelname)7s %(module)s:%(funcName)s -> %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s %(levelname)7s %(module)s:%(funcName)s -> %(message)s', level=logging.DEBUG)
 logging.debug("Starting up")
 
 
 from IAMClient import IAMClient
 iam = IAMClient()
 
-# We need the App ID of the application defined in the config file
-# this allows us to delete only the users created by the fakeUsers.py script
-myAppID = iam.GetMyAppID()
+# calculate now minus DAYSIDLE
+from datetime import datetime, timedelta
+logging.debug("Current time: {}".format(datetime.now().strftime("%c")))
+deletedatetime = datetime.utcnow() + timedelta(days=-DAYSIDLE)
+logging.info("will delete users who have not logged in since {}".format(deletedatetime.strftime("%c")))
+
+# reformat it to look like this:
+# 2022-02-18T22:21:24.780Z
+deletedatetime = deletedatetime.isoformat(sep='T',timespec='seconds') + "Z"
+logging.debug("Timestamp for search {}".format(deletedatetime))
 
 # this is the last "ID" number we saw.
 # see my blog post for why I do this!
@@ -51,12 +62,12 @@ reqs = []
 # I like while loops for some reason
 cont = True
 while cont:
-        # this filter uses the app ID we looked up above
+        # this filter uses the time string we built above (some number of days ago)
         # and the last user "id" we saw
         # we do the latter b/c of an oddity of SCIM (see my blog post and the RFC)
         # https://datatracker.ietf.org/doc/html/rfc7644#section-3.4.2.4
         logging.debug("Constructing search filter...")
-        filter = 'idcsCreatedBy.value eq "{}" and id gt "{}"'.format(myAppID,lastId)
+        filter = 'urn:ietf:params:scim:schemas:oracle:idcs:extension:userState:User:lastSuccessfulLoginDate lt "{}" and id gt "{}"'.format(deletedatetime,lastId)
         logging.debug( "Filter: {}".format( filter ))
         # my search options
         args =  {
@@ -75,7 +86,7 @@ while cont:
                         # create a DELETE request for the user id (note: not username - this is the value of the id attribute of the user object)
                         reqs += [{
                                         "method": "DELETE",
-                                        "path": "/Users/" + user["id"],
+                                        "path": "/Users/" + user["id"] + "?forceDelete=true",
                                         "bulkId": ''.join(random.choices(string.ascii_lowercase,k=10)),
                                 }]
 
